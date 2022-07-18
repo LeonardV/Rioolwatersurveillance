@@ -2,11 +2,11 @@
 
 ## auteur script: Pieter Seinen (GGD Gelderland Zuid) en Leonard Vanbrabant (GGD West-Brabant)
 ## datum aangemaakt: 31-03-2022
-## datum aangepast:  08-07-2022 door LV
+## datum aangepast:  18-07-2022 door LV
 ## laaste wijzigingen:
   # missings worden nu op rwzi niveau geimputeerd
   # landelijke trendlijn is obv de mediaan
-
+  # geen impuatie voor laatste week
 
 library(shiny)
 library(dplyr)     # dplyr syntax
@@ -128,14 +128,23 @@ server <- function(input, output) {
   colnames(rwzis_weken) <- c("week", "rwzi_code")
   
   # Combinaties van week en RWZI die nog niet in de data bestaan aanvullen met rwzis_weken
-  rioolwater_per_week <- rioolwater_per_week %>% 
+  # rioolwater_per_week <- rioolwater_per_week %>% 
+  #   full_join(rwzis_weken, by = c("rwzi_code", "week")) %>%
+  #   mutate(is_echt = !is.na(RNA_flow_per_100000)) %>%
+  #   group_by(rwzi_code) %>%
+  #   arrange(week) %>%
+  #   # imputeer missings
+  #   mutate(RNA_flow_per_100000 = na_ma(RNA_flow_per_100000, k = 2, weighting = "simple")) 
+  # 
+  
+  rioolwater_per_week <- rioolwater_per_week %>%
     full_join(rwzis_weken, by = c("rwzi_code", "week")) %>%
     mutate(is_echt = !is.na(RNA_flow_per_100000)) %>%
     group_by(rwzi_code) %>%
     arrange(week) %>%
     # imputeer missings
-    mutate(RNA_flow_per_100000 = na_ma(RNA_flow_per_100000, k = 2, weighting = "simple")) 
-  
+    mutate(RNA_flow_per_100000 = na_ma(RNA_flow_per_100000, k = 2, weighting = "simple")) %>%
+    mutate(RNA_flow_per_100000 = ifelse(week == max(week) & is_echt == FALSE, NA, RNA_flow_per_100000))
   
   
   # Gemeenteniveau ----------------------------------------------------------
@@ -174,10 +183,16 @@ server <- function(input, output) {
     # Groeperen op regio zodat er rowSums gemaakt kunnen worden
     group_by(regio_code, week) %>%
     # Som het aantal inwoners van gemeente & aantal RNA per rwzi/gemeente bij elkaar op
-    mutate(aantal_mensen = sum(inwoners_gemeente_per_rwzi),
-           aantal_rna = sum(rna_rwzi_gemeente),
-           percentage_geimputeerd = round(sum(ifelse(is_echt, 0, (inwoners_gemeente_per_rwzi/aantal_mensen)*100)))) %>%
+    mutate(inwoners_gemeente_per_rwzi = ifelse(is.na(rna_rwzi_gemeente), NA, inwoners_gemeente_per_rwzi),
+           aantal_mensen = sum(inwoners_gemeente_per_rwzi, na.rm = TRUE),
+           aantal_rna    = sum(rna_rwzi_gemeente, na.rm = TRUE),
+           percentage_geimputeerd = round( sum(ifelse(is_echt | (!is_echt & week == max(week)), 0, 
+                                                     (inwoners_gemeente_per_rwzi/aantal_mensen)*100))) ) %>%
     ungroup() %>%
+    # mutate(aantal_mensen = sum(inwoners_gemeente_per_rwzi),
+    #        aantal_rna = sum(rna_rwzi_gemeente),
+    #        percentage_geimputeerd = round(sum(ifelse(is_echt, 0, (inwoners_gemeente_per_rwzi/aantal_mensen)*100)))) %>%
+    # ungroup() %>%
     # * 100000 om op rna flow per 100.0000 uit te komen
     mutate(rna = aantal_rna/aantal_mensen * 1e5) %>%
     # Opschonen; 1 rij per gemeente
